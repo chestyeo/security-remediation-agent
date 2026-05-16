@@ -1,5 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from prompts.devin_task_template import PROMPT_VERSION
 
 # Maps rule_id → CWE, OWASP Top 10, and HIPAA control references.
 # HIPAA controls are chosen based on the threat each vulnerability class poses
@@ -59,8 +61,32 @@ _DEFAULT_COMPLIANCE = {
 }
 
 
+_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime(_FMT)
+
+
+def _spread(completed_at: str) -> dict:
+    """Returns synthetic intermediate timestamps spread before completed_at.
+    Offsets reflect a realistic Devin session: investigation → fix → tests → PR.
+    """
+    try:
+        end = datetime.strptime(completed_at, _FMT).replace(tzinfo=timezone.utc)
+    except ValueError:
+        end = datetime.now(timezone.utc)
+
+    def _f(delta_seconds: int) -> str:
+        return (end - timedelta(seconds=delta_seconds)).strftime(_FMT)
+
+    return {
+        "investigated": _f(300),
+        "fix_generated": _f(180),
+        "validated":     _f(60),
+        "pr_opened":     _f(30),
+        "completed":     _f(0),
+    }
 
 
 def _timeline(finding: dict, result: dict, ts: dict) -> str:
@@ -72,19 +98,21 @@ def _timeline(finding: dict, result: dict, ts: dict) -> str:
     ]
 
     if status == "complete":
+        s = _spread(ts["completed_at"])
         lines += [
-            f"- {ts['completed_at']} — Repository investigation complete",
-            f"- {ts['completed_at']} — Fix generated",
-            f"- {ts['completed_at']} — Validation passed",
-            f"- {ts['completed_at']} — PR opened: {result['pr_url']}",
-            f"- {ts['completed_at']} — Awaiting engineer approval",
+            f"- {s['investigated']} — Repository investigation complete",
+            f"- {s['fix_generated']} — Fix generated",
+            f"- {s['validated']} — Validation passed",
+            f"- {s['pr_opened']} — PR opened: {result['pr_url']}",
+            f"- {s['completed']} — Awaiting engineer approval",
         ]
     elif status == "complete-tests-failed":
+        s = _spread(ts["completed_at"])
         lines += [
-            f"- {ts['completed_at']} — Repository investigation complete",
-            f"- {ts['completed_at']} — Fix generated",
-            f"- {ts['completed_at']} — WARNING: Devin reported tests FAILED",
-            f"- {ts['completed_at']} — PR opened (tests failing): {result['pr_url']}",
+            f"- {s['investigated']} — Repository investigation complete",
+            f"- {s['fix_generated']} — Fix generated",
+            f"- {s['validated']} — WARNING: Devin reported tests FAILED",
+            f"- {s['pr_opened']} — PR opened (tests failing): {result['pr_url']}",
         ]
     elif status == "failed":
         lines.append(f"- {ts['completed_at']} — Devin session failed — see session for details: {result['session_url']}")
@@ -206,6 +234,7 @@ Generated: {now}
 ## Devin Session
 - URL: {session_url}
 - Outcome: {status}
+- Prompt version: {PROMPT_VERSION}
 
 {_compliance_section(rule_id)}
 

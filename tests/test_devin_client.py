@@ -123,7 +123,7 @@ def test_poll_result_uses_pull_requests_array():
     resp.raise_for_status.return_value = None
     resp.json.return_value = {
         "status": "complete",
-        "pull_requests": [{"url": "https://github.com/pr/99"}],
+        "pull_requests": [{"url": "https://github.com/acme/medsecure/pull/99"}],
     }
 
     with patch("src.devin_client.requests.get", return_value=resp), \
@@ -131,7 +131,7 @@ def test_poll_result_uses_pull_requests_array():
          patch("src.devin_client.time.time", side_effect=[0, 1, 2]):
         result = poll_session("sess-1", "key", "org", timeout=600)
 
-    assert result["pr_url"] == "https://github.com/pr/99"
+    assert result["pr_url"] == "https://github.com/acme/medsecure/pull/99"
 
 
 # ── validate_env tests ────────────────────────────────────────

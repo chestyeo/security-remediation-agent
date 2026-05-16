@@ -2,9 +2,12 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 
 import requests
+
+_PR_URL_RE = re.compile(r"^https://github\.com/[^/]+/[^/]+/pull/\d+$")
 from dotenv import load_dotenv
 
 from prompts.devin_task_template import build_prompt
@@ -91,6 +94,9 @@ def poll_session(session_id: str, api_key: str, org_id: str, timeout: int = 600)
                     pr_url = pull_requests[0].get("url") or ""
                 else:
                     pr_url = data.get("pull_request_url") or data.get("pr_url") or ""
+                if pr_url and not _PR_URL_RE.match(pr_url):
+                    logger.warning("Session %s — pr_url failed validation: %s", session_id, pr_url)
+                    pr_url = ""
                 outcome = "complete" if status in _SUCCESS_STATES else "failed"
                 if outcome == "failed":
                     reason = data.get("error") or data.get("message") or status

@@ -13,6 +13,7 @@ from src.parser import parse_sarif
 from src.triage import triage_findings
 from src.devin_client import call_devin
 from src.audit import generate_audit_artifact
+from src.escalate import create_failure_issue
 from src.notify import generate_notification_summary
 
 load_dotenv()
@@ -73,7 +74,7 @@ def _save_state(state: dict) -> None:
 
 
 def _already_remediated(finding_id: str, state: dict) -> bool:
-    return state.get(finding_id) == "awaiting-approval"
+    return state.get(finding_id) in ("awaiting-approval", "tests-failed")
 
 
 def main() -> None:
@@ -189,10 +190,16 @@ def main() -> None:
             logger.error("[%s] Devin session failed — session: %s", fid, devin_result["session_url"])
             state[fid] = "failed"
             failed += 1
+            issue_url = create_failure_issue(finding, devin_result)
+            if issue_url:
+                logger.info("[%s] Escalation issue: %s", fid, issue_url)
         elif status == "timeout":
             logger.error("[%s] Devin session timed out — session: %s", fid, devin_result["session_url"])
             state[fid] = "timeout"
             failed += 1
+            issue_url = create_failure_issue(finding, devin_result)
+            if issue_url:
+                logger.info("[%s] Escalation issue: %s", fid, issue_url)
 
         _save_state(state)
 

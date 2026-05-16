@@ -36,6 +36,7 @@ security-remediation-agent/
 │   ├── triage.py                   ← triage and prioritisation logic
 │   ├── devin_client.py             ← Devin API wrapper (v3)
 │   ├── audit.py                    ← audit artifact generator
+│   ├── escalate.py                 ← GitHub Issue creation for failed remediations
 │   └── notify.py                   ← notification summary generator + Slack webhook
 ├── tests/
 │   ├── conftest.py                 ← shared pytest fixtures (uses fixtures/demo.sarif.json)
@@ -44,6 +45,7 @@ security-remediation-agent/
 │   ├── test_prompt.py
 │   ├── test_devin_client.py
 │   ├── test_audit.py
+│   ├── test_escalate.py
 │   ├── test_notify.py
 │   ├── test_run_agent.py
 │   ├── test_rules_sync.py          ← enforces rule dict consistency across modules
@@ -102,6 +104,10 @@ Notification summary generated
 Slack webhook posted (if SLACK_WEBHOOK_URL set)
       ↓
 Audit artifacts uploaded to GitHub Actions run
+      ↓
+Job summary written to Actions run (rendered markdown report)
+      ↓
+For any failed/timeout findings: GitHub Issue opened in medsecure
 ```
 
 ---
@@ -140,7 +146,7 @@ SARIF path resolution: `--sarif` flag → if `--dry-run` with no flag, uses `fix
 
 Captures four real UTC timestamps per finding: `ingested_at`, `triaged_at`, `session_started_at`, `completed_at`.
 
-Deduplication: before calling Devin, reads `outputs/state.json` (created on first run). Skips any finding whose `finding_id` maps to `awaiting-approval` in the state file. State is written after every finding so a mid-run crash does not lose progress. Remove a `finding_id` entry from `state.json` to force a re-run of that specific finding.
+Deduplication: before calling Devin, reads `outputs/state.json` (created on first run). Skips any finding whose `finding_id` maps to `awaiting-approval` or `tests-failed` in the state file — both are treated as already-handled. State is written after every finding so a mid-run crash does not lose progress. Remove a `finding_id` entry from `state.json` to force a re-run of that specific finding — this applies to `tests-failed` findings too; removing the entry is the only way to trigger a new Devin session for a finding whose PR has failing tests.
 
 Terminal summary reports three distinct counts: `Remediated` (complete), `Tests failed (PR open)` (complete-tests-failed), `Failed (no PR)` (failed or timeout).
 
@@ -210,7 +216,7 @@ Poll:      GET  /sessions/{session_id}  every 15s, 600s timeout
 
 Terminal states: `complete`, `finished`, `failed`, `error`, `stopped`, `blocked`.
 
-`dry_run=True` skips the API entirely and returns a mock result with a `DRY-RUN-{hash}` PR URL that is clearly not real.
+`dry_run=True` skips the API entirely and returns a mock result with a PR URL in the form `https://github.com/demo/repo/pull/DRY-RUN-{hash}`. The `demo/repo` path is hardcoded — audit artifacts generated during a dry run will contain this placeholder regardless of `TARGET_REPO`. This is intentional: dry-run outputs are not real and should not reference a real repository.
 
 `call_devin(finding, dry_run)` returns: `{status, pr_url, session_url, structured_output}`.
 
@@ -239,15 +245,15 @@ Sections:
 - **Triage** — classification, priority score, reasoning
 - **Remediation Timeline** — timestamped entries from ingestion through PR open
 - **Pull Request** — URL and status (or explicit failure message — no URL fabricated)
-- **Devin Session** — session URL and outcome
+- **Devin Session** — session URL, outcome, and prompt version (from `PROMPT_VERSION` constant in `devin_task_template.py`)
 - **Compliance** — rule mapped to CWE, OWASP Top 10, and HIPAA control (e.g. `py/sql-injection` → CWE-089 / A03:2021 / § 164.312(a)(1) Access Control)
 - **Resolution** — living-document fields: PR status, merge confirmed, CodeQL closure
 - **Compliance Notes** — human approval required before merge
 
 Timeline branches on status:
 - `complete` with `pr_url` — full 8-entry happy path ending with "Awaiting engineer approval"
-- `complete` without `pr_url` — session completed but no PR URL returned; PR status recorded as `complete-no-pr-url`
-- `complete-tests-failed` — PR opened but Devin reported tests failing; flagged for engineer review
+- `complete` without `pr_url` — Devin session completed but no PR URL was returned; PR status recorded as `complete-no-pr-url`; not escalated as a failure but requires manual investigation
+- `complete-tests-failed` — PR opened but Devin reported tests failing; flagged for engineer review; finding is skipped on re-run (remove from `state.json` to retry)
 - `failed` — terminal entry with session URL, no PR URL fabricated
 - `timeout` — terminal entry with session URL, no PR URL fabricated
 
@@ -269,7 +275,21 @@ Sections:
 - **Audit Artifacts** — path per attempted remediation
 - **Next Steps** — review PRs, audit artifacts available
 
-Slack: after writing the summary file, posts a formatted message to `SLACK_WEBHOOK_URL` if set. Message includes run status, counts, and clickable PR links. Silently skips if the env var is absent — dry-run and test runs are unaffected.
+Slack: after writing the summary file, posts a formatted message to `SLACK_WEBHOOK_URL` if set. Message includes run status, counts, clickable PR links, and a direct link to the Actions run when `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID` are present. Silently skips if the webhook URL is absent — dry-run and test runs are unaffected.
+
+---
+
+### src/escalate.py
+Opens a GitHub Issue in the target repository for any finding whose Devin session ends in `failed` or `timeout`.
+
+Called from `run_agent.py` immediately after state is written for failed/timeout outcomes.
+
+Issue content:
+- Title: `[Security] Remediation failed — {rule_id} in {file}`
+- Body: finding details table (ID, rule, file, line, severity, status, Devin session URL), next steps, audit artifact path
+- Labels: `security`, `needs-manual-review`
+
+Uses `GITHUB_TOKEN` and `TARGET_REPO` — no additional credentials required. Returns the issue URL on success, empty string on failure. Silently skips if either env var is absent. Deduplicates — searches open issues with the `security` label before posting; skips creation if a matching title already exists. Audit artifact reference links directly to the Actions run in CI, falls back to relative path locally.
 
 ---
 

@@ -1,8 +1,11 @@
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -93,11 +96,18 @@ def _post_slack(total: int, successful: list, tests_failed: list, failed: list,
             lines.append(f"• <{r['devin']['pr_url']}|{f['rule_id']} in {Path(f['file']).name}>")
     if results:
         lines.append("")
-        lines.append(f"Audit artifacts uploaded to workflow run.")
+        lines.append("Audit artifacts uploaded to workflow run.")
+    server = os.environ.get("GITHUB_SERVER_URL")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if server and gh_repo and run_id:
+        lines.append(f"\n<{server}/{gh_repo}/actions/runs/{run_id}|View Actions run →>")
     try:
-        requests.post(url, json={"text": "\n".join(lines)}, timeout=10)
-    except Exception:
-        pass
+        resp = requests.post(url, json={"text": "\n".join(lines)}, timeout=10)
+        resp.raise_for_status()
+        logger.info("Slack notification posted successfully")
+    except Exception as exc:
+        logger.warning("Slack notification failed: %s", exc)
 
 
 def generate_notification_summary(triaged: dict, results: list[dict]) -> str:

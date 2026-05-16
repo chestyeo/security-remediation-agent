@@ -2,6 +2,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+PROMPT_VERSION = "1.0.0"
+
 # Rule-specific vulnerability descriptions and fix guidance.
 # Falls back to _DEFAULT_GUIDANCE for any rule not listed here.
 _RULE_GUIDANCE = {

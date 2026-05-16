@@ -1,6 +1,7 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
+from run_agent import _already_remediated
 
 
 def _make_finding(rule_id="py/sql-injection", classification="auto-remediable"):
@@ -25,6 +26,24 @@ def _mock_devin_ok():
 def _mock_devin_fail():
     return {"status": "failed", "pr_url": "",
             "session_url": "https://app.devin.ai/sessions/x", "structured_output": {}}
+
+
+# ── Deduplication ────────────────────────────────────────────
+
+def test_already_remediated_skips_awaiting_approval():
+    assert _already_remediated("fid", {"fid": "awaiting-approval"}) is True
+
+
+def test_already_remediated_skips_tests_failed():
+    assert _already_remediated("fid", {"fid": "tests-failed"}) is True
+
+
+def test_already_remediated_does_not_skip_failed():
+    assert _already_remediated("fid", {"fid": "failed"}) is False
+
+
+def test_already_remediated_does_not_skip_missing():
+    assert _already_remediated("fid", {}) is False
 
 
 # ── Test 8: SARIF file does not exist ─────────────────────────
