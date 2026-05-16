@@ -1,0 +1,154 @@
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _prs_section(successful: list[dict]) -> str:
+    if not successful:
+        return "## PRs Opened\n\nNone."
+    lines = ["## PRs Opened", ""]
+    for r in successful:
+        f = r["finding"]
+        lines.append(f"- {r['devin']['pr_url']} — {f['rule_id']} in {f['file']}")
+    return "\n".join(lines)
+
+
+def _tests_failed_section(tests_failed: list[dict]) -> str:
+    if not tests_failed:
+        return ""
+    lines = ["## PRs Opened — Tests Failing (Engineer Review Required)", ""]
+    for r in tests_failed:
+        f = r["finding"]
+        pr_url = r["devin"].get("pr_url", "")
+        session_url = r["devin"]["session_url"]
+        lines.append(f"- **{f['finding_id']}** — PR opened but tests failed")
+        lines.append(f"  - Rule: {f['rule_id']} in {f['file']} (line {f['line']})")
+        if pr_url:
+            lines.append(f"  - PR: {pr_url}")
+        lines.append(f"  - Session: {session_url}")
+    return "\n".join(lines) + "\n"
+
+
+def _failures_section(failed: list[dict]) -> str:
+    if not failed:
+        return ""
+    lines = ["## Failed Remediations", ""]
+    for r in failed:
+        f = r["finding"]
+        status = r["devin"]["status"]
+        session_url = r["devin"]["session_url"]
+        lines.append(f"- **{f['finding_id']}** — {status}")
+        lines.append(f"  - Rule: {f['rule_id']} in {f['file']} (line {f['line']})")
+        lines.append(f"  - Session: {session_url}")
+    return "\n".join(lines) + "\n"
+
+
+def _requires_human_section(requires_human: list[dict]) -> str:
+    if not requires_human:
+        return ""
+    lines = ["## Requires Human Investigation", ""]
+    for f in requires_human:
+        lines.append(f"- {f['rule_id']} in {f['file']} (line {f['line']}, {f['severity']})")
+        lines.append(f"  - {f['reasoning']}")
+    return "\n".join(lines) + "\n"
+
+
+def _artifacts_section(results: list[dict]) -> str:
+    if not results:
+        return "## Audit Artifacts\n\nNone."
+    lines = ["## Audit Artifacts", ""]
+    for r in results:
+        lines.append(f"- {r['audit_path']}")
+    return "\n".join(lines)
+
+
+def _post_slack(total: int, successful: list, tests_failed: list, failed: list,
+                requires_human: list, results: list) -> None:
+    url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not url:
+        return
+    status = "✅ Complete" if not failed and not tests_failed else "⚠️ Needs Review"
+    lines = [
+        f"*Security Remediation Run — {status}*",
+        f"• Findings ingested: {total}",
+        f"• PRs opened: {len(successful)}",
+    ]
+    if tests_failed:
+        lines.append(f"• PRs with failing tests (review required): {len(tests_failed)}")
+    if failed:
+        lines.append(f"• Failed (no PR): {len(failed)}")
+    if requires_human:
+        lines.append(f"• Requires human investigation: {len(requires_human)}")
+    if successful:
+        lines.append("")
+        lines.append("*PRs Opened*")
+        for r in successful:
+            f = r["finding"]
+            lines.append(f"• <{r['devin']['pr_url']}|{f['rule_id']} in {Path(f['file']).name}>")
+    if results:
+        lines.append("")
+        lines.append(f"Audit artifacts uploaded to workflow run.")
+    try:
+        requests.post(url, json={"text": "\n".join(lines)}, timeout=10)
+    except Exception:
+        pass
+
+
+def generate_notification_summary(triaged: dict, results: list[dict]) -> str:
+    """
+    triaged  — dict from triage_findings: {auto_remediable, requires_human, ignored}
+    results  — list of {finding, devin, audit_path} dicts, one per attempted remediation
+
+    Returns the path of the written summary file.
+    """
+    auto_remediable = triaged["auto_remediable"]
+    requires_human  = triaged["requires_human"]
+    ignored         = triaged["ignored"]
+    total           = len(auto_remediable) + len(requires_human) + len(ignored)
+
+    successful    = [r for r in results if r["devin"]["status"] == "complete"]
+    tests_failed  = [r for r in results if r["devin"]["status"] == "complete-tests-failed"]
+    failed        = [r for r in results if r["devin"]["status"] in ("failed", "timeout")]
+
+    sections = [
+        _prs_section(successful),
+        _tests_failed_section(tests_failed),
+        _failures_section(failed),
+        _requires_human_section(requires_human),
+        _artifacts_section(results),
+    ]
+    body_sections = "\n\n".join(s for s in sections if s)
+
+    body = f"""\
+# Remediation Run Summary
+
+Generated: {_now()}
+
+## Results
+- Findings ingested: {total}
+- Auto-remediated: {len(successful)} of {len(auto_remediable)} attempted
+- PRs opened (tests failing — review required): {len(tests_failed)}
+- Failed (no PR): {len(failed)}
+- Requires human investigation: {len(requires_human)}
+- Ignored: {len(ignored)}
+
+{body_sections}
+
+## Next Steps
+- Review and approve PRs in GitHub
+- Audit artifacts available for compliance review in outputs/audit/
+"""
+
+    out_path = Path("outputs/notification-summary.md")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(body)
+
+    _post_slack(total, successful, tests_failed, failed, list(requires_human), results)
+
+    return str(out_path)

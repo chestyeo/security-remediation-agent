@@ -1,0 +1,46 @@
+name: Security Remediation
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [sarif-ready]
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout agent
+        uses: actions/checkout@v4
+
+      - name: Checkout medsecure
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/medsecure
+          path: medsecure
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run agent
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REPO: https://github.com/${{ github.repository_owner }}/medsecure
+          SARIF_PATH: medsecure/findings/codeql.sarif.json
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python run_agent.py --sarif medsecure/findings/codeql.sarif.json
+
+      - name: Upload audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-artifacts-${{ github.run_id }}
+          path: outputs/
