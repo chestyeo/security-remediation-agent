@@ -22,3 +22,6 @@ check:
 
 clean:
 	rm -f outputs/audit/finding-*-audit.md outputs/notification-summary.md outputs/state.json
+
+clean-ci-cache:
+	gh cache delete remediation-state-$$(gh repo view --json nameWithOwner -q .nameWithOwner) --repo $$(gh repo view --json nameWithOwner -q .nameWithOwner) 2>/dev/null || echo "No cache found"

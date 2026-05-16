@@ -117,7 +117,7 @@ def _timeline(finding: dict, result: dict, ts: dict) -> str:
     elif status == "failed":
         lines.append(f"- {ts['completed_at']} — Devin session failed — see session for details: {result['session_url']}")
     elif status == "timeout":
-        lines.append(f"- {ts['completed_at']} — Devin session timed out after 600s — session: {result['session_url']}")
+        lines.append(f"- {ts['completed_at']} — Devin session timed out after 900s — session: {result['session_url']}")
 
     return "\n".join(lines)
 
