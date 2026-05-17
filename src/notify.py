@@ -57,7 +57,9 @@ def _requires_human_section(requires_human: list[dict]) -> str:
         return ""
     lines = ["## Requires Human Investigation", ""]
     for f in requires_human:
-        lines.append(f"- {f['rule_id']} in {f['file']} (line {f['line']}, {f['severity']})")
+        issue_url = f.get("issue_url", "")
+        issue_ref = f" — [Issue]({issue_url})" if issue_url else ""
+        lines.append(f"- {f['rule_id']} in {f['file']} (line {f['line']}, {f['severity']}){issue_ref}")
         lines.append(f"  - {f['reasoning']}")
     return "\n".join(lines) + "\n"
 
@@ -88,6 +90,11 @@ def _post_slack(total: int, successful: list, tests_failed: list, failed: list,
         lines.append(f"• Failed (no PR): {len(failed)}")
     if requires_human:
         lines.append(f"• Requires human investigation: {len(requires_human)}")
+        for f in requires_human:
+            issue_url = f.get("issue_url", "")
+            name = Path(f["file"]).name
+            if issue_url:
+                lines.append(f"  - <{issue_url}|{f['rule_id']} in {name}>")
     if successful:
         lines.append("")
         lines.append("*PRs Opened*")

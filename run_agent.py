@@ -135,6 +135,9 @@ def main() -> None:
             issue_url = create_requires_human_issue(f)
             if issue_url:
                 logger.info("  [requires-human] Issue opened: %s", issue_url)
+        else:
+            issue_url = ""
+        f["issue_url"] = issue_url
     for f in ignored:
         logger.info("  [ignored]        %s", f["file"])
 
