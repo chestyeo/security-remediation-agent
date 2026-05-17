@@ -1,18 +1,28 @@
 # security-remediation-agent
 
-An autonomous security remediation orchestrator that ingests CodeQL findings, tasks Devin to investigate and fix vulnerabilities, and generates audit-ready evidence for every remediated finding.
+security-remediation-agent automatically converts CodeQL/SARIF security findings into validated pull requests using Devin.
+
+It triages findings, routes unsafe cases to human review, and fully automates deterministic remediation paths.
+
+Each finding produces a traceable audit artifact with compliance mappings (CWE, OWASP, HIPAA) and full execution history.
+
+All findings are explicitly accounted for — nothing is silently dropped.
+
+Human approval is required only at merge time.
 
 ---
 
 ## The Problem
 
-CodeQL scans flag dozens of issues every week. Security teams file tickets. Engineering teams ignore them — they're not in the sprint. The backlog grows. Auditors flag it. The cycle repeats.
+CodeQL scans flag dozens of issues every week. Security teams file tickets. Engineering teams ignore them because they’re not sprint work. The backlog grows. Auditors flag it. The cycle repeats.
 
-For regulated industries like healthcare and financial services, unresolved findings are a compliance liability, not just tech debt.
+For regulated industries like healthcare and financial services, unresolved findings are a compliance risk, not just technical debt.
 
 ---
 
 ## How It Works
+
+Unlike traditional AI coding tools that stop at suggestions, Devin executes full remediation workflows: context analysis, patch generation, test validation, and pull request creation with audit evidence.
 
 ```
 Push to findings/codeql.sarif.json in medsecure
@@ -59,7 +69,7 @@ The only human step is approving the merge.
 
 ## The Requires-Human Boundary
 
-Not every finding gets sent to Devin. The triage layer classifies each finding into one of three buckets before any agent is invoked:
+Autonomy is scoped by policy, not capability. The triage layer classifies each finding into one of three buckets before any agent is invoked:
 
 - **auto-remediable** — rule is in the known-safe set (SQL injection, hardcoded credentials, unsafe deserialisation, unsafe subprocess). Fix pattern is deterministic. Devin is dispatched.
 - **requires-human** — rule requires contextual judgement to fix safely, or the fix pattern carries a risk of behaviour change. The finding is surfaced but not automated.
@@ -109,6 +119,7 @@ TEST_COMMAND=pytest tests/
 ---
 
 ## Design Principles
+The system never modifies production systems directly and all changes are proposed via pull request with enforced human approval, as follows:
 
 - Human approval is always required before merge.
 - Every finding produces a timestamped audit record, including failures.
