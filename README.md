@@ -1,12 +1,10 @@
 # security-remediation-agent
 
-security-remediation-agent automatically converts CodeQL/SARIF security findings into validated pull requests using Devin.
+security-remediation-agent converts CodeQL/SARIF findings into validated pull requests using Devin.
 
-It triages findings, routes unsafe cases to human review, and fully automates deterministic remediation paths.
+It triages security findings, routes unsafe cases to human review, and automates deterministic remediation paths.
 
-Each finding produces a traceable audit artifact with compliance mappings (CWE, OWASP, HIPAA) and full execution history.
-
-All findings are explicitly accounted for — nothing is silently dropped.
+Every finding, including failures, produces a timestamped audit record with CWE/OWASP/HIPAA mappings. Nothing is silently dropped.
 
 Human approval is required only at merge time.
 
@@ -18,11 +16,15 @@ CodeQL scans flag dozens of issues every week. Security teams file tickets. Engi
 
 For regulated industries like healthcare and financial services, unresolved findings are a compliance risk, not just technical debt.
 
+The system eliminates security remediation backlog by converting detection signals directly into verified engineering work.
+
 ---
 
 ## How It Works
 
-Unlike traditional AI coding tools that stop at suggestions, Devin executes full remediation workflows: context analysis, patch generation, test validation, and pull request creation with audit evidence.
+Devin is the execution layer that turns pre-triaged security findings into validated pull requests through investigation, remediation, and test-driven verification.
+
+The system triages existing CodeQL/SARIF findings into auto-remediable, requires-human, and ignored classes before invoking any agent execution.
 
 ```
 Push to findings/codeql.sarif.json in medsecure
@@ -53,17 +55,19 @@ The only human step is approving the merge.
 
 ## What Gets Generated
 
-**Pull Request** — diff, remediation rationale, test output, and five embedded sections the reviewer sees without opening anything else: Triage Decision (classification, priority, reasoning), Compliance Mapping (CWE, OWASP, HIPAA), Remediation Timeline (timestamped from ingestion through PR open), Validation output, and Audit Metadata.
+Each output is designed for a specific stakeholder in the remediation lifecycle.
 
-**Audit Artifact** — `outputs/audit/finding-{id}-audit.md` — full remediation chain from detection to PR open, timestamped at every step. CWE, OWASP, and HIPAA control mappings per rule. Uploaded to the Actions run on every execution.
+#### Pull Request
+The reviewer sees everything needed to approve or reject without opening anything else: the diff, remediation rationale, test output, triage classification with priority and reasoning, compliance mappings (CWE, OWASP, HIPAA), and a timestamped remediation timeline from detection to PR open.
 
-**Notification Summary** — `outputs/notification-summary.md` — rendered as the Actions job summary. Includes a Results table, a Remediated table (Finding, Severity, PR link, Compliance), a Requires Human Review table (Finding, Severity, Reason, Issue link), and per-finding audit artifact paths. Also posted to Slack.
+#### Audit Artifact
+One file per finding — the complete remediation chain from detection to PR, with CWE, OWASP, and HIPAA control mappings. An auditor can pull every artifact from the Actions run and reconstruct exactly what was found, how it was triaged, and what was done about it.
 
-**Failure Issues** — GitHub Issue opened for every failed or timed-out Devin session. Labels: `security`, `needs-manual-review`. Every failure has a named owner.
+#### Notification Summary
+Posted to Slack and rendered as the Actions job summary after every run. Security leads see at a glance: what was fixed and which PRs need approval, what requires human review and who owns it, and what failed and why.
 
-**Requires-Human Issues** — GitHub Issue opened for every finding that triage routes to a human. Includes the rule, file, line, severity, and the triage reasoning explaining why it was not automated. Same labels and deduplication as failure issues.
-
-**State File** — `outputs/state.json` — `finding_id → status` for deduplication on re-runs. Written after every finding. Remove an entry to force re-remediation.
+#### Failure and Requires-Human Issues
+A GitHub Issue is opened automatically for every finding that wasn't automated — whether triage classified it as requiring contextual judgement, or the Devin session failed. Every unresolved finding has a named owner and a durable ticket. Nothing falls through the cracks.
 
 ---
 
@@ -119,7 +123,7 @@ TEST_COMMAND=pytest tests/
 ---
 
 ## Design Principles
-The system never modifies production systems directly and all changes are proposed via pull request with enforced human approval, as follows:
+The system is designed for safe, review-based remediation with strict human-in-the-loop enforcement:
 
 - Human approval is always required before merge.
 - Every finding produces a timestamped audit record, including failures.
@@ -181,5 +185,5 @@ Known Phase 1 scope boundaries, each with a resolution path above.
 - **Point-in-time audit artifact** — merge confirmation and post-merge CodeQL closure require a webhook update (Phase 2).
 - **Devin PR quality is partially verified** — failing tests are caught automatically; diff correctness requires engineer review before merge. This is by design.
 - **Fixed auto-remediable ruleset** — covers the most common exploitable rules; per-repo configuration is Phase 3.
-- **Audit intermediate timestamps are estimated** — `ingested_at`, `triaged_at`, `session_started_at`, and `completed_at` are real. Step-level entries (investigation, fix, validation, PR) are offsets from `completed_at`
-- **State cache is best-effort** — `state.json` is persisted via `actions/cache` for the demo; production would use a durable store.
+- **Audit timestamps reflect system-level pipeline boundaries** — ingestion, triage, session start, and completion are captured precisely; intra-session steps (investigation, fix, validation) are derived from completion metadata.
+- **State cache uses GitHub Actions cache** — sufficient for single-repo use; a durable external store is recommended for multi-repo or high-frequency deployments (Phase 2).
