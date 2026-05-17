@@ -43,11 +43,11 @@ The only human step is approving the merge.
 
 ## What Gets Generated
 
-**Pull Request** — diff, remediation rationale, test output, audit metadata, and a manual test plan for the reviewer.
+**Pull Request** — diff, remediation rationale, test output, and five embedded sections the reviewer sees without opening anything else: Triage Decision (classification, priority, reasoning), Compliance Mapping (CWE, OWASP, HIPAA), Remediation Timeline (timestamped from ingestion through PR open), Validation output, and Audit Metadata.
 
 **Audit Artifact** — `outputs/audit/finding-{id}-audit.md` — full remediation chain from detection to PR open, timestamped at every step. CWE, OWASP, and HIPAA control mappings per rule. Uploaded to the Actions run on every execution.
 
-**Notification Summary** — `outputs/notification-summary.md` — PRs opened, failing-test PRs, failed remediations, requires-human findings. Posted to Slack and written as the Actions job summary.
+**Notification Summary** — `outputs/notification-summary.md` — rendered as the Actions job summary. Includes a Results table, a Remediated table (Finding, Severity, PR link, Compliance), a Requires Human Review table (Finding, Severity, Reason, Issue link), and per-finding audit artifact paths. Also posted to Slack.
 
 **Failure Issues** — GitHub Issue opened for every failed or timed-out Devin session. Labels: `security`, `needs-manual-review`. Every failure has a named owner.
 

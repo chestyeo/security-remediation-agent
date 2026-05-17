@@ -28,3 +28,24 @@ def test_prompt_contains_audit_metadata(finding):
     assert "finding_id"            in prompt
     assert "py-sql-injection"      in prompt
     assert "timestamp"             in prompt
+
+
+def test_prompt_contains_triage_and_compliance(finding):
+    prompt = build_prompt(finding)
+    assert "Triage Decision"       in prompt
+    assert "Compliance Mapping"    in prompt
+    assert "Remediation Timeline"  in prompt
+    assert "auto-remediable"       in prompt
+    assert "CWE-089"               in prompt
+
+
+def test_prompt_uses_supplied_timestamps(finding):
+    ts = {
+        "ingested_at":        "2026-05-17T10:00:00Z",
+        "triaged_at":         "2026-05-17T10:00:01Z",
+        "session_started_at": "2026-05-17T10:08:43Z",
+    }
+    prompt = build_prompt(finding, timestamps=ts)
+    assert "2026-05-17T10:00:00Z"  in prompt
+    assert "2026-05-17T10:00:01Z"  in prompt
+    assert "2026-05-17T10:08:43Z"  in prompt

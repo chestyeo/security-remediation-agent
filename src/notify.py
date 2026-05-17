@@ -5,6 +5,9 @@ from pathlib import Path
 
 import requests
 
+from src.audit import get_compliance
+from prompts.devin_task_template import get_rule_title
+
 logger = logging.getLogger(__name__)
 
 
@@ -12,13 +15,57 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _prs_section(successful: list[dict]) -> str:
+def _date_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _pr_link(pr_url: str) -> str:
+    if not pr_url:
+        return "—"
+    number = pr_url.rstrip("/").split("/")[-1]
+    return f"[#{number}]({pr_url})"
+
+
+def _issue_link(issue_url: str) -> str:
+    if not issue_url:
+        return "—"
+    number = issue_url.rstrip("/").split("/")[-1]
+    return f"[#{number}]({issue_url})"
+
+
+def _compact_compliance(rule_id: str) -> str:
+    c = get_compliance(rule_id)
+    cwe   = c["cwe"].split(" — ")[0]
+    hipaa = c["hipaa"].split(" — ")[0].split(";")[0].strip()
+    return f"{cwe} / HIPAA {hipaa}"
+
+
+def _remediated_section(successful: list[dict]) -> str:
     if not successful:
-        return "## PRs Opened\n\nNone."
-    lines = ["## PRs Opened", ""]
+        return "## Remediated\n\nNone."
+    lines = ["## Remediated", "", "| Finding | Severity | PR | Compliance |", "|---|---|---|---|"]
     for r in successful:
         f = r["finding"]
-        lines.append(f"- {r['devin']['pr_url']} — {f['rule_id']} in {f['file']}")
+        title    = get_rule_title(f["rule_id"])
+        filename = Path(f["file"]).name
+        severity = f["severity"].capitalize()
+        pr       = _pr_link(r["devin"].get("pr_url", ""))
+        comp     = _compact_compliance(f["rule_id"])
+        lines.append(f"| {title} in {filename} | {severity} | {pr} | {comp} |")
+    return "\n".join(lines)
+
+
+def _requires_human_table(requires_human: list) -> str:
+    if not requires_human:
+        return ""
+    lines = ["## Requires Human Review", "", "| Finding | Severity | Reason | Issue |", "|---|---|---|---|"]
+    for f in requires_human:
+        title    = get_rule_title(f["rule_id"])
+        filename = Path(f["file"]).name
+        severity = f["severity"].capitalize()
+        reason   = f.get("reasoning", "Requires contextual judgement")
+        issue    = _issue_link(f.get("issue_url", ""))
+        lines.append(f"| {title} in {filename} | {severity} | {reason} | {issue} |")
     return "\n".join(lines)
 
 
@@ -52,24 +99,11 @@ def _failures_section(failed: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _requires_human_section(requires_human: list[dict]) -> str:
-    if not requires_human:
-        return ""
-    lines = ["## Requires Human Investigation", ""]
-    for f in requires_human:
-        issue_url = f.get("issue_url", "")
-        issue_ref = f" — [Issue]({issue_url})" if issue_url else ""
-        lines.append(f"- {f['rule_id']} in {f['file']} (line {f['line']}, {f['severity']}){issue_ref}")
-        lines.append(f"  - {f['reasoning']}")
-    return "\n".join(lines) + "\n"
-
-
 def _artifacts_section(results: list[dict]) -> str:
-    if not results:
-        return "## Audit Artifacts\n\nNone."
-    lines = ["## Audit Artifacts", ""]
+    lines = ["## Audit Artifacts", "", "Available in Actions run artifacts — one file per finding.", ""]
     for r in results:
-        lines.append(f"- {r['audit_path']}")
+        if r.get("audit_path"):
+            lines.append(f"- {r['audit_path']}")
     return "\n".join(lines)
 
 
@@ -82,25 +116,27 @@ def _post_slack(total: int, successful: list, tests_failed: list, failed: list,
     lines = [
         f"*Security Remediation Run — {status}*",
         f"• Findings ingested: {total}",
-        f"• PRs opened: {len(successful)}",
+        f"• Auto-remediated: {len(successful)}",
     ]
     if tests_failed:
         lines.append(f"• PRs with failing tests (review required): {len(tests_failed)}")
     if failed:
         lines.append(f"• Failed (no PR): {len(failed)}")
     if requires_human:
-        lines.append(f"• Requires human investigation: {len(requires_human)}")
+        lines.append(f"• Requires human review: {len(requires_human)}")
         for f in requires_human:
             issue_url = f.get("issue_url", "")
+            title = get_rule_title(f["rule_id"])
             name = Path(f["file"]).name
             if issue_url:
-                lines.append(f"  - <{issue_url}|{f['rule_id']} in {name}>")
+                lines.append(f"  - <{issue_url}|{title} in {name}>")
     if successful:
         lines.append("")
-        lines.append("*PRs Opened*")
+        lines.append("*Remediated*")
         for r in successful:
             f = r["finding"]
-            lines.append(f"• <{r['devin']['pr_url']}|{f['rule_id']} in {Path(f['file']).name}>")
+            title = get_rule_title(f["rule_id"])
+            lines.append(f"• <{r['devin']['pr_url']}|{title} in {Path(f['file']).name}>")
     if results:
         lines.append("")
         lines.append("Audit artifacts uploaded to workflow run.")
@@ -129,31 +165,32 @@ def generate_notification_summary(triaged: dict, results: list[dict]) -> str:
     ignored         = triaged["ignored"]
     total           = len(auto_remediable) + len(requires_human) + len(ignored)
 
-    successful    = [r for r in results if r["devin"]["status"] == "complete"]
-    tests_failed  = [r for r in results if r["devin"]["status"] == "complete-tests-failed"]
-    failed        = [r for r in results if r["devin"]["status"] in ("failed", "timeout")]
+    successful   = [r for r in results if r["devin"]["status"] == "complete"]
+    tests_failed = [r for r in results if r["devin"]["status"] == "complete-tests-failed"]
+    failed       = [r for r in results if r["devin"]["status"] in ("failed", "timeout")]
 
     sections = [
-        _prs_section(successful),
+        _remediated_section(successful),
+        _requires_human_table(list(requires_human)),
         _tests_failed_section(tests_failed),
         _failures_section(failed),
-        _requires_human_section(requires_human),
         _artifacts_section(results),
     ]
     body_sections = "\n\n".join(s for s in sections if s)
 
     body = f"""\
-# Remediation Run Summary
+# Security Remediation Run — {_date_str()}
 
 Generated: {_now()}
 
 ## Results
-- Findings ingested: {total}
-- Auto-remediated: {len(successful)} of {len(auto_remediable)} attempted
-- PRs opened (tests failing — review required): {len(tests_failed)}
-- Failed (no PR): {len(failed)}
-- Requires human investigation: {len(requires_human)}
-- Ignored: {len(ignored)}
+| Metric | Count |
+|---|---|
+| Findings ingested | {total} |
+| Auto-remediated | {len(successful)} |
+| Requires human review | {len(requires_human)} |
+| Failed | {len(failed) + len(tests_failed)} |
+| Ignored | {len(ignored)} |
 
 {body_sections}
 

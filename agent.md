@@ -198,9 +198,16 @@ Prompt includes:
 - Validation steps (run pytest, confirm passing before PR)
 - Investigation-first instruction (read file and CODEOWNERS before writing any fix)
 - Exact PR title: `[Security] Fix {vulnerability} in {filename}`
-- PR body template with audit metadata: `finding_id`, `rule_id`, `severity`, `file`, `line`, `timestamp`
+- PR body template with five sections Devin must include verbatim or fill in:
+  - `### Vulnerability` / `### Fix` / `### Validation` — Devin writes these
+  - `### Triage Decision` — pre-filled: classification, priority/100, triage reasoning
+  - `### Compliance Mapping` — pre-filled: CWE, OWASP Top 10, HIPAA control reference
+  - `### Remediation Timeline` — pre-filled timestamps for ingestion/triage/session-start; Devin appends real timestamps for fix and PR open
+  - Audit metadata block: `finding_id`, `rule_id`, `severity`, `file`, `line`, `timestamp`
 
-Falls back to generic guidance for rules not in the known-rule dict.
+`build_prompt(finding, timestamps=None)` accepts an optional `timestamps` dict (`ingested_at`, `triaged_at`, `session_started_at`) so real timestamps tracked by `run_agent.py` flow into the PR body. Falls back to `now()` when omitted.
+
+Each rule entry in `_RULE_GUIDANCE` includes compact `cwe`, `owasp`, and `hipaa` strings used in the PR body. `get_rule_title(rule_id)` is a public helper used by `notify.py`.
 
 ---
 
@@ -218,7 +225,7 @@ Terminal states: `complete`, `finished`, `failed`, `error`, `stopped`, `blocked`
 
 `dry_run=True` skips the API entirely and returns a mock result with a PR URL in the form `https://github.com/demo/repo/pull/DRY-RUN-{hash}`. The `demo/repo` path is hardcoded — audit artifacts generated during a dry run will contain this placeholder regardless of `TARGET_REPO`. This is intentional: dry-run outputs are not real and should not reference a real repository.
 
-`call_devin(finding, dry_run)` returns: `{status, pr_url, session_url, structured_output}`.
+`call_devin(finding, dry_run, timestamps=None)` returns: `{status, pr_url, session_url, structured_output}`. The optional `timestamps` dict is forwarded to `build_prompt` so real ingestion/triage/session timestamps appear in the PR body.
 
 Retry and resilience:
 - `create_session` retries up to 3 times with exponential backoff (2s, 4s, 8s) on any network error or non-200 response. Raises after all attempts exhausted.
@@ -264,18 +271,21 @@ Takes an optional `timestamps` dict (`ingested_at`, `triaged_at`, `session_start
 ### src/notify.py
 Generates a run summary after all findings are processed and posts it to Slack.
 
-Output: `outputs/notification-summary.md`
+Output: `outputs/notification-summary.md`. This file is appended to `$GITHUB_STEP_SUMMARY` by the workflow, making it the first thing visible when anyone opens the completed Actions run.
 
 Sections:
-- **Results** — five-row counts: ingested, auto-remediated, PRs opened with failing tests, failed (no PR), requires-human, ignored
-- **PRs Opened** — one line per `complete` remediation with PR URL, rule, file
-- **PRs Opened — Tests Failing** — one line per `complete-tests-failed` result; includes PR URL and session URL; engineer review required before merge
-- **Failed Remediations** — status, rule, file, session URL for `failed` and `timeout` results only (no PR URL fabricated)
-- **Requires Human Investigation** — rule, file, severity, triage reasoning, and a link to the GitHub Issue if one was opened
-- **Audit Artifacts** — path per attempted remediation
+- **Header** — `# Security Remediation Run — {date}`
+- **Results** — markdown table: Findings ingested, Auto-remediated, Requires human review, Failed, Ignored
+- **Remediated** — markdown table: Finding (title + filename), Severity, PR link (`[#N](url)`), Compliance (`CWE-XXX / HIPAA § X.XXX`)
+- **Requires Human Review** — markdown table: Finding, Severity, triage reasoning, Issue link (`[#N](url)`)
+- **PRs Opened — Tests Failing** — detail list per `complete-tests-failed` result; includes PR URL and session URL; engineer review required before merge
+- **Failed Remediations** — detail list; status, rule, file, session URL for `failed` and `timeout` results only (no PR URL fabricated)
+- **Audit Artifacts** — summary line plus one path per attempted remediation
 - **Next Steps** — review PRs, audit artifacts available
 
-Slack: after writing the summary file, posts a formatted message to `SLACK_WEBHOOK_URL` if set. Message includes run status, counts, clickable PR links, clickable requires-human issue links (one per finding, if issue creation succeeded), and a direct link to the Actions run when `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID` are present. Silently skips if the webhook URL is absent — dry-run and test runs are unaffected.
+Imports `get_compliance` from `src.audit` and `get_rule_title` from `prompts.devin_task_template` to populate compliance and human-readable finding titles in tables.
+
+Slack: after writing the summary file, posts a formatted message to `SLACK_WEBHOOK_URL` if set. Message includes run status, counts, clickable PR links, clickable requires-human issue links, and a direct link to the Actions run when `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID` are present. Silently skips if the webhook URL is absent — dry-run and test runs are unaffected.
 
 ---
 

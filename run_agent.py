@@ -168,7 +168,11 @@ def main() -> None:
         logger.info("[%s] Sending to Devin (%s)", fid, session_started_at)
 
         try:
-            devin_result = call_devin(finding, dry_run=args.dry_run)
+            devin_result = call_devin(finding, dry_run=args.dry_run, timestamps={
+                "ingested_at":        ingested_at,
+                "triaged_at":         triaged_at,
+                "session_started_at": session_started_at,
+            })
         except Exception as exc:
             logger.error("[%s] call_devin raised exception: %s", fid, exc)
             devin_result = {"status": "failed", "pr_url": "", "session_url": "", "structured_output": {}}

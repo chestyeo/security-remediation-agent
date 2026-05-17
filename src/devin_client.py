@@ -169,7 +169,7 @@ def poll_session(session_id: str, api_key: str, org_id: str, timeout: int = 600,
     return {"status": "timeout", "pr_url": "", "session_url": session_url, "structured_output": {}}
 
 
-def call_devin(finding: dict, dry_run: bool = False) -> dict:
+def call_devin(finding: dict, dry_run: bool = False, timestamps: dict | None = None) -> dict:
     if dry_run:
         logger.info("DRY RUN — Devin API call skipped")
         fid = finding["finding_id"]
@@ -186,7 +186,7 @@ def call_devin(finding: dict, dry_run: bool = False) -> dict:
     if not api_key or not org_id:
         raise EnvironmentError("DEVIN_API_KEY and DEVIN_ORG_ID must be set in .env")
 
-    prompt = build_prompt(finding)
+    prompt = build_prompt(finding, timestamps)
     logger.debug("Prompt SHA256: %s  finding: %s",
                  hashlib.sha256(prompt.encode()).hexdigest()[:12], finding["finding_id"])
     logger.info("Creating Devin session for finding: %s", finding["finding_id"])

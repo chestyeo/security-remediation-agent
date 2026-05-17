@@ -19,6 +19,9 @@ _RULE_GUIDANCE = {
             "Pass user input exclusively as bound parameters — never interpolate it "
             "into the query string."
         ),
+        "cwe": "CWE-089 (SQL Injection)",
+        "owasp": "A03:2021 Injection",
+        "hipaa": "§ 164.312(a)(1) Access Control",
     },
     "js/sql-injection": {
         "title": "SQL injection",
@@ -30,6 +33,9 @@ _RULE_GUIDANCE = {
             "Use parameterised queries or prepared statements. "
             "Never interpolate user input into SQL strings."
         ),
+        "cwe": "CWE-089 (SQL Injection)",
+        "owasp": "A03:2021 Injection",
+        "hipaa": "§ 164.312(a)(1) Access Control",
     },
     "java/sql-injection": {
         "title": "SQL injection",
@@ -41,6 +47,9 @@ _RULE_GUIDANCE = {
             "Replace string-concatenated queries with PreparedStatement and bound parameters. "
             "Never interpolate user input into SQL strings."
         ),
+        "cwe": "CWE-089 (SQL Injection)",
+        "owasp": "A03:2021 Injection",
+        "hipaa": "§ 164.312(a)(1) Access Control",
     },
     "rb/sql-injection": {
         "title": "SQL injection",
@@ -52,6 +61,9 @@ _RULE_GUIDANCE = {
             "Use parameterised queries or ActiveRecord's built-in sanitisation. "
             "Never interpolate user input into SQL strings."
         ),
+        "cwe": "CWE-089 (SQL Injection)",
+        "owasp": "A03:2021 Injection",
+        "hipaa": "§ 164.312(a)(1) Access Control",
     },
     "py/hardcoded-credentials": {
         "title": "hardcoded credentials",
@@ -64,6 +76,9 @@ _RULE_GUIDANCE = {
             "Remove the hardcoded value. Read the secret from an environment variable "
             "or a secrets manager at runtime. Add the variable name to .env.example."
         ),
+        "cwe": "CWE-798 (Hard-coded Credentials)",
+        "owasp": "A07:2021 Identification and Authentication Failures",
+        "hipaa": "§ 164.312(d) Person or Entity Authentication",
     },
     "js/hardcoded-credentials": {
         "title": "hardcoded credentials",
@@ -75,6 +90,9 @@ _RULE_GUIDANCE = {
             "Remove the hardcoded value and replace it with an environment variable read. "
             "Document the variable name in .env.example."
         ),
+        "cwe": "CWE-798 (Hard-coded Credentials)",
+        "owasp": "A07:2021 Identification and Authentication Failures",
+        "hipaa": "§ 164.312(d) Person or Entity Authentication",
     },
     "py/clear-text-storage-of-sensitive-data": {
         "title": "clear-text storage of sensitive data",
@@ -86,6 +104,9 @@ _RULE_GUIDANCE = {
             "Encrypt sensitive fields before writing. "
             "Use an established encryption library; do not implement your own."
         ),
+        "cwe": "CWE-312 (Cleartext Storage)",
+        "owasp": "A02:2021 Cryptographic Failures",
+        "hipaa": "§ 164.312(e)(2)(ii) Encryption and Decryption",
     },
     "py/unsafe-deserialization": {
         "title": "unsafe deserialisation",
@@ -97,6 +118,9 @@ _RULE_GUIDANCE = {
             "Replace the unsafe deserialiser with a safe alternative such as "
             "json.loads or a schema-validated parser."
         ),
+        "cwe": "CWE-502 (Unsafe Deserialisation)",
+        "owasp": "A08:2021 Software and Data Integrity Failures",
+        "hipaa": "§ 164.306(a)(1) ePHI Protection",
     },
     "py/unsafe-use-of-subprocess": {
         "title": "unsafe subprocess invocation",
@@ -108,6 +132,9 @@ _RULE_GUIDANCE = {
             "Replace shell=True with an argument list. "
             "Never pass user input to a shell=True subprocess call."
         ),
+        "cwe": "CWE-078 (OS Command Injection)",
+        "owasp": "A03:2021 Injection",
+        "hipaa": "§ 164.306(a)(1) ePHI Protection",
     },
 }
 
@@ -118,10 +145,17 @@ _DEFAULT_GUIDANCE = {
         "Investigate the flagged line and apply the minimal safe fix described "
         "in the CodeQL rule documentation."
     ),
+    "cwe": "See CodeQL rule documentation",
+    "owasp": "See OWASP Top 10",
+    "hipaa": "§ 164.306(a)(1) ePHI Protection",
 }
 
 
-def build_prompt(finding: dict) -> str:
+def get_rule_title(rule_id: str) -> str:
+    return _RULE_GUIDANCE.get(rule_id, _DEFAULT_GUIDANCE)["title"]
+
+
+def build_prompt(finding: dict, timestamps: dict | None = None) -> str:
     rule_id = finding["rule_id"]
     file = finding["file"]
     filename = Path(file).name
@@ -135,6 +169,18 @@ def build_prompt(finding: dict) -> str:
     guidance = _RULE_GUIDANCE.get(rule_id, _DEFAULT_GUIDANCE)
     pr_title = f"[Security] Fix {guidance['title']} in {filename}"
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    ts = timestamps or {}
+    ingested_at        = ts.get("ingested_at", timestamp)
+    triaged_at         = ts.get("triaged_at", timestamp)
+    session_started_at = ts.get("session_started_at", timestamp)
+
+    classification = finding.get("classification", "auto-remediable")
+    priority       = finding.get("priority", 0)
+    reasoning      = finding.get("reasoning", "")
+    cwe   = guidance["cwe"]
+    owasp = guidance["owasp"]
+    hipaa = guidance["hipaa"]
 
     return f"""\
 You are investigating a {guidance['title']} vulnerability.
@@ -186,6 +232,28 @@ PR body must include:
 
 ### Validation
 [Paste the test output confirming all tests pass]
+
+### Triage Decision
+Copy this block verbatim:
+- Classification: {classification}
+- Priority: {priority}/100
+- Reasoning: {reasoning}
+
+### Compliance Mapping
+Copy this block verbatim:
+- CWE: {cwe}
+- OWASP: {owasp}
+- HIPAA: {hipaa}
+
+### Remediation Timeline
+Begin with these entries, then append your actual timestamps for the fix and PR steps:
+- {ingested_at} — Finding ingested from CodeQL SARIF
+- {triaged_at} — Triage completed: {classification} ({priority}/100)
+- {session_started_at} — Devin session started
+- [UTC timestamp] — Fix generated and validated
+- [UTC timestamp] — PR opened
+
+Replace [UTC timestamp] with the actual time in YYYY-MM-DDTHH:MM:SSZ format.
 
 ## Investigation First
 Before writing any fix:

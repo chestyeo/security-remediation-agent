@@ -61,6 +61,10 @@ _DEFAULT_COMPLIANCE = {
 }
 
 
+def get_compliance(rule_id: str) -> dict:
+    return _COMPLIANCE_MAP.get(rule_id, _DEFAULT_COMPLIANCE)
+
+
 _FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 
