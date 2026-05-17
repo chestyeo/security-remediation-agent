@@ -51,7 +51,25 @@ The only human step is approving the merge.
 
 **Failure Issues** — GitHub Issue opened for every failed or timed-out Devin session. Labels: `security`, `needs-manual-review`. Every failure has a named owner.
 
+**Requires-Human Issues** — GitHub Issue opened for every finding that triage routes to a human. Includes the rule, file, line, severity, and the triage reasoning explaining why it was not automated. Same labels and deduplication as failure issues.
+
 **State File** — `outputs/state.json` — `finding_id → status` for deduplication on re-runs. Written after every finding. Remove an entry to force re-remediation.
+
+---
+
+## The Requires-Human Boundary
+
+Not every finding gets sent to Devin. The triage layer classifies each finding into one of three buckets before any agent is invoked:
+
+- **auto-remediable** — rule is in the known-safe set (SQL injection, hardcoded credentials, unsafe deserialisation, unsafe subprocess). Fix pattern is deterministic. Devin is dispatched.
+- **requires-human** — rule requires contextual judgement to fix safely, or the fix pattern carries a risk of behaviour change. The finding is surfaced but not automated.
+- **ignored** — file path is a test, generated, migration, or vendor file. Fixing it would not reduce real exposure.
+
+Every `requires-human` finding appears in the Slack notification, the Actions job summary, and `outputs/notification-summary.md` with its rule, severity, file, and the triage reasoning explaining why it was not automated. A GitHub Issue is also opened automatically in the target repository so the finding has a named owner and a durable ticket. Nothing is silently dropped.
+
+This boundary is intentional and configurable — the auto-remediable ruleset can be extended as your security team signs off on additional fix patterns. The point is that autonomy is opt-in per rule class, not blanket.
+
+For enterprise and compliance reviewers: the audit trail accounts for 100% of ingested findings, not just the ones that were fixed. An auditor can verify that every finding was seen, triaged, and either remediated or explicitly routed to a human owner.
 
 ---
 
@@ -81,9 +99,11 @@ GITHUB_TOKEN=your_github_token
 TARGET_REPO=https://github.com/your-username/medsecure
 SARIF_PATH=../medsecure/findings/codeql.sarif.json
 
-SLACK_WEBHOOK_URL=...   <- optional
-REPO_CRITICAL=true      <- optional, +20 to every finding's priority score
-LOG_LEVEL=DEBUG         <- optional, prompt SHA256 tracing + full Devin response bodies
+# Optional Variables
+SLACK_WEBHOOK_URL=... 
+REPO_CRITICAL=true    
+LOG_LEVEL=DEBUG       
+TEST_COMMAND=pytest tests/
 ```
 
 ---
@@ -150,3 +170,5 @@ Known Phase 1 scope boundaries, each with a resolution path above.
 - **Point-in-time audit artifact** — merge confirmation and post-merge CodeQL closure require a webhook update (Phase 2).
 - **Devin PR quality is partially verified** — failing tests are caught automatically; diff correctness requires engineer review before merge. This is by design.
 - **Fixed auto-remediable ruleset** — covers the most common exploitable rules; per-repo configuration is Phase 3.
+- **Audit intermediate timestamps are estimated** — `ingested_at`, `triaged_at`, `session_started_at`, and `completed_at` are real. Step-level entries (investigation, fix, validation, PR) are offsets from `completed_at`
+- **State cache is best-effort** — `state.json` is persisted via `actions/cache` for the demo; production would use a durable store.

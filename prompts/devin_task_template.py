@@ -130,6 +130,7 @@ def build_prompt(finding: dict) -> str:
     finding_id = finding["finding_id"]
     message = " ".join(finding.get("message", "").split())[:200]
     target_repo = os.environ.get("TARGET_REPO", "https://github.com/your-org/medsecure-vulnerable-app")
+    test_command = os.environ.get("TEST_COMMAND", "pytest tests/")
 
     guidance = _RULE_GUIDANCE.get(rule_id, _DEFAULT_GUIDANCE)
     pr_title = f"[Security] Fix {guidance['title']} in {filename}"
@@ -167,7 +168,7 @@ Do NOT:
 ## Validation
 
 After applying the fix:
-1. Run: pytest tests/
+1. Run: {test_command}
 2. Confirm all tests pass before opening the PR
 3. If tests fail, investigate and fix the root cause — do not skip or delete tests
 

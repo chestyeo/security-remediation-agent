@@ -308,6 +308,7 @@ Optional:
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...   ← posts run summary to Slack channel
 REPO_CRITICAL=true    ← adds 20 points to every finding's priority score
 LOG_LEVEL=DEBUG       ← enables prompt SHA256 tracing and full Devin response bodies on failure (default: INFO)
+TEST_COMMAND=pytest tests/   ← override if the target repo uses a different test runner (e.g. "npm test", "python -m pytest")
 ```
 
 In GitHub Actions, all variables are set as repository secrets. `GITHUB_TOKEN` is provided automatically by the runner.

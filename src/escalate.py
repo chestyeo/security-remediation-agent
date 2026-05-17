@@ -67,6 +67,73 @@ def _issue_exists(owner: str, repo: str, title: str, token: str) -> bool:
         return False
 
 
+def create_requires_human_issue(finding: dict) -> str:
+    """
+    Opens a GitHub issue for a finding that requires human investigation.
+    Returns the issue URL, or empty string if creation fails or credentials are absent.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    target_repo = os.environ.get("TARGET_REPO", "")
+    if not token or not target_repo:
+        return ""
+
+    parsed = _parse_repo(target_repo)
+    if not parsed:
+        logger.warning("Could not parse TARGET_REPO for issue creation: %s", target_repo)
+        return ""
+
+    owner, repo = parsed
+    fid = finding["finding_id"]
+
+    title = f"[Security] Requires human review — {finding['rule_id']} in {finding['file']}"
+    body = f"""\
+## Requires Human Investigation
+
+This finding was triaged by the security remediation agent but cannot be automatically fixed. Manual investigation is required.
+
+| Field | Value |
+|---|---|
+| Finding ID | `{fid}` |
+| Rule | `{finding['rule_id']}` |
+| File | `{finding['file']}` |
+| Line | {finding['line']} |
+| Severity | {finding['severity']} |
+| Priority | {finding['priority']}/100 |
+
+## Triage Reasoning
+
+{finding['reasoning']}
+
+## Next Steps
+
+1. Review the flagged code at `{finding['file']}` line {finding['line']}
+2. Apply a safe fix with appropriate tests
+3. Close this issue when the finding is remediated and verified by CodeQL
+"""
+
+    if _issue_exists(owner, repo, title, token):
+        logger.info("[%s] Requires-human issue already exists — skipping creation", fid)
+        return ""
+
+    try:
+        resp = requests.post(
+            f"{_GITHUB_API}/repos/{owner}/{repo}/issues",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"title": title, "body": body, "labels": ["security", "needs-manual-review"]},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        issue_url = resp.json().get("html_url", "")
+        logger.info("[%s] Requires-human issue created: %s", fid, issue_url)
+        return issue_url
+    except Exception as exc:
+        logger.warning("[%s] Failed to create requires-human GitHub issue: %s", fid, exc)
+        return ""
+
+
 def create_failure_issue(finding: dict, devin_result: dict) -> str:
     """
     Opens a GitHub issue in the target repo for a failed or timed-out remediation.

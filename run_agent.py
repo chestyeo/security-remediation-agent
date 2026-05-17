@@ -13,7 +13,7 @@ from src.parser import parse_sarif
 from src.triage import triage_findings
 from src.devin_client import call_devin
 from src.audit import generate_audit_artifact
-from src.escalate import create_failure_issue, find_pr_for_finding
+from src.escalate import create_failure_issue, find_pr_for_finding, create_requires_human_issue
 from src.notify import generate_notification_summary
 
 load_dotenv()
@@ -121,7 +121,7 @@ def main() -> None:
         sys.exit(1)
 
     triaged_at = _now()
-    auto    = triaged["auto_remediable"]
+    auto    = sorted(triaged["auto_remediable"], key=lambda f: f["priority"], reverse=True)
     human   = triaged["requires_human"]
     ignored = triaged["ignored"]
 
@@ -131,6 +131,10 @@ def main() -> None:
     )
     for f in human:
         logger.info("  [requires-human] %s  %s  %s", f["severity"].upper(), f["rule_id"], f["file"])
+        if not args.dry_run:
+            issue_url = create_requires_human_issue(f)
+            if issue_url:
+                logger.info("  [requires-human] Issue opened: %s", issue_url)
     for f in ignored:
         logger.info("  [ignored]        %s", f["file"])
 
