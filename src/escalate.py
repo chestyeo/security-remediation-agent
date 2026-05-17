@@ -16,6 +16,43 @@ def _parse_repo(target_repo: str) -> tuple[str, str] | None:
     return match.group(1), match.group(2)
 
 
+def find_pr_for_finding(finding_id: str) -> str:
+    """
+    Checks GitHub for an open PR on the branch Devin would have created.
+    Returns the PR URL if found, empty string otherwise.
+    Called after a timeout to detect PRs opened after our polling window closed.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    target_repo = os.environ.get("TARGET_REPO", "")
+    if not token or not target_repo:
+        return ""
+
+    parsed = _parse_repo(target_repo)
+    if not parsed:
+        return ""
+
+    owner, repo = parsed
+    branch = f"security/fix-{finding_id}"
+
+    try:
+        resp = requests.get(
+            f"{_GITHUB_API}/repos/{owner}/{repo}/pulls",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            params={"head": f"{owner}:{branch}", "state": "open"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        pulls = resp.json()
+        if pulls:
+            pr_url = pulls[0].get("html_url", "")
+            logger.info("Found PR on branch %s: %s", branch, pr_url)
+            return pr_url
+    except Exception as exc:
+        logger.warning("PR check for %s failed: %s", finding_id, exc)
+
+    return ""
+
+
 def _issue_exists(owner: str, repo: str, title: str, token: str) -> bool:
     try:
         resp = requests.get(

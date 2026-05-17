@@ -13,7 +13,7 @@ from src.parser import parse_sarif
 from src.triage import triage_findings
 from src.devin_client import call_devin
 from src.audit import generate_audit_artifact
-from src.escalate import create_failure_issue
+from src.escalate import create_failure_issue, find_pr_for_finding
 from src.notify import generate_notification_summary
 
 load_dotenv()
@@ -195,11 +195,17 @@ def main() -> None:
                 logger.info("[%s] Escalation issue: %s", fid, issue_url)
         elif status == "timeout":
             logger.error("[%s] Devin session timed out — session: %s", fid, devin_result["session_url"])
-            state[fid] = "timeout"
-            failed += 1
-            issue_url = create_failure_issue(finding, devin_result)
-            if issue_url:
-                logger.info("[%s] Escalation issue: %s", fid, issue_url)
+            pr_url = find_pr_for_finding(fid)
+            if pr_url:
+                logger.info("[%s] PR found after timeout: %s — counting as complete", fid, pr_url)
+                devin_result["pr_url"] = pr_url
+                devin_result["status"] = "complete"
+                status = "complete"
+                state[fid] = "awaiting-approval"
+                remediated += 1
+            else:
+                state[fid] = "timeout"
+                failed += 1
 
         _save_state(state)
 

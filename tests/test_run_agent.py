@@ -81,7 +81,66 @@ def test_all_requires_human_logs_and_completes(monkeypatch, capsys):
     assert "Requires human      1" in captured.out
 
 
-# ── Test 10: Devin fails on first finding, second still runs ──
+# ── Test 10a: Timeout with PR found → counted as complete ─────
+
+def test_timeout_with_pr_found_counts_as_remediated(monkeypatch, capsys):
+    from run_agent import main
+    monkeypatch.setenv("TARGET_REPO", "https://github.com/org/repo")
+    monkeypatch.setattr("sys.argv", ["run_agent.py", "--dry-run"])
+
+    finding = _make_finding(rule_id="py/sql-injection")
+    triaged = {"auto_remediable": [finding], "requires_human": [], "ignored": []}
+    timeout_result = {
+        "status": "timeout", "pr_url": "",
+        "session_url": "https://app.devin.ai/sessions/x", "structured_output": {},
+    }
+
+    with patch("run_agent.parse_sarif", return_value=[finding]), \
+         patch("run_agent.triage_findings", return_value=triaged), \
+         patch("run_agent.call_devin", return_value=timeout_result), \
+         patch("run_agent.find_pr_for_finding",
+               return_value="https://github.com/org/repo/pull/42"), \
+         patch("run_agent._load_state", return_value={}), \
+         patch("run_agent._save_state"), \
+         patch("run_agent.generate_audit_artifact", return_value="outputs/audit/test.md"), \
+         patch("run_agent.generate_notification_summary"):
+        main()
+
+    captured = capsys.readouterr()
+    assert "Remediated          1" in captured.out
+    assert "Failed (no PR)      0" in captured.out
+
+
+# ── Test 10b: Timeout with no PR → counted as failed ──────────
+
+def test_timeout_without_pr_counts_as_failed(monkeypatch, capsys):
+    from run_agent import main
+    monkeypatch.setenv("TARGET_REPO", "https://github.com/org/repo")
+    monkeypatch.setattr("sys.argv", ["run_agent.py", "--dry-run"])
+
+    finding = _make_finding(rule_id="py/sql-injection")
+    triaged = {"auto_remediable": [finding], "requires_human": [], "ignored": []}
+    timeout_result = {
+        "status": "timeout", "pr_url": "",
+        "session_url": "https://app.devin.ai/sessions/x", "structured_output": {},
+    }
+
+    with patch("run_agent.parse_sarif", return_value=[finding]), \
+         patch("run_agent.triage_findings", return_value=triaged), \
+         patch("run_agent.call_devin", return_value=timeout_result), \
+         patch("run_agent.find_pr_for_finding", return_value=""), \
+         patch("run_agent._load_state", return_value={}), \
+         patch("run_agent._save_state"), \
+         patch("run_agent.generate_audit_artifact", return_value="outputs/audit/test.md"), \
+         patch("run_agent.generate_notification_summary"):
+        main()
+
+    captured = capsys.readouterr()
+    assert "Remediated          0" in captured.out
+    assert "Failed (no PR)      1" in captured.out
+
+
+# ── Test 11: Devin fails on first finding, second still runs ──
 
 def test_second_finding_processes_after_first_fails(monkeypatch):
     from run_agent import main

@@ -71,7 +71,7 @@ def create_session(prompt: str, api_key: str, org_id: str) -> str:
     raise last_exc
 
 
-def poll_session(session_id: str, api_key: str, org_id: str, timeout: int = 900) -> dict:
+def poll_session(session_id: str, api_key: str, org_id: str, timeout: int = 1800) -> dict:
     url = f"{_SESSIONS_URL.format(org_id=org_id)}/{session_id}"
     session_url = _APP_SESSION_URL.format(session_id=session_id)
     deadline = time.time() + timeout
