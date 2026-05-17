@@ -152,7 +152,7 @@ TEST_COMMAND=pytest tests/
 | Item | Detail |
 |---|---|
 | Compliance report generation | Monthly reports mapped to HIPAA, SOC 2, ISO 27001 |
-| Issue tracker integration | Auto-create Jira/Linear tickets for requires-human findings |
+| Issue tracker integration | GitHub Issues already auto-created for requires-human findings; Jira/Linear sync is Phase 3 |
 | Client-configurable rulesets | Per-repository auto-remediable rule sets |
 | Metrics dashboard | Remediation velocity, MTTR, backlog burn-down by team |
 | Expanded language support | JavaScript, TypeScript, Java |

@@ -271,25 +271,30 @@ Sections:
 - **PRs Opened** — one line per `complete` remediation with PR URL, rule, file
 - **PRs Opened — Tests Failing** — one line per `complete-tests-failed` result; includes PR URL and session URL; engineer review required before merge
 - **Failed Remediations** — status, rule, file, session URL for `failed` and `timeout` results only (no PR URL fabricated)
-- **Requires Human Investigation** — rule, file, severity, triage reasoning
+- **Requires Human Investigation** — rule, file, severity, triage reasoning, and a link to the GitHub Issue if one was opened
 - **Audit Artifacts** — path per attempted remediation
 - **Next Steps** — review PRs, audit artifacts available
 
-Slack: after writing the summary file, posts a formatted message to `SLACK_WEBHOOK_URL` if set. Message includes run status, counts, clickable PR links, and a direct link to the Actions run when `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID` are present. Silently skips if the webhook URL is absent — dry-run and test runs are unaffected.
+Slack: after writing the summary file, posts a formatted message to `SLACK_WEBHOOK_URL` if set. Message includes run status, counts, clickable PR links, clickable requires-human issue links (one per finding, if issue creation succeeded), and a direct link to the Actions run when `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID` are present. Silently skips if the webhook URL is absent — dry-run and test runs are unaffected.
 
 ---
 
 ### src/escalate.py
-Opens a GitHub Issue in the target repository for any finding whose Devin session ends in `failed` or `timeout`.
+Two issue-creation functions, both using the same GitHub API wrapper and deduplication logic.
 
-Called from `run_agent.py` immediately after state is written for failed/timeout outcomes.
+**`create_requires_human_issue(finding)`** — called from `run_agent.py` during triage for every `requires-human` finding. Skipped in dry-run mode. The returned issue URL is stored on the finding dict (`finding["issue_url"]`) so the notification summary and Slack message can link to it.
 
-Issue content:
+- Title: `[Security] Requires human review — {rule_id} in {file}`
+- Body: finding details table (ID, rule, file, line, severity, priority), triage reasoning, next steps
+- Labels: `security`, `needs-manual-review`
+
+**`create_failure_issue(finding, devin_result)`** — called from `run_agent.py` immediately after state is written for `failed` or `timeout` outcomes.
+
 - Title: `[Security] Remediation failed — {rule_id} in {file}`
 - Body: finding details table (ID, rule, file, line, severity, status, Devin session URL), next steps, audit artifact path
 - Labels: `security`, `needs-manual-review`
 
-Uses `GITHUB_TOKEN` and `TARGET_REPO` — no additional credentials required. Returns the issue URL on success, empty string on failure. Silently skips if either env var is absent. Deduplicates — searches open issues with the `security` label before posting; skips creation if a matching title already exists. Audit artifact reference links directly to the Actions run in CI, falls back to relative path locally.
+Both functions use `GITHUB_TOKEN` and `TARGET_REPO` — no additional credentials required. Return the issue URL on success, empty string on failure. Silently skip if either env var is absent. Deduplicate — search open issues with the `security` label before posting; skip creation if a matching title already exists.
 
 ---
 
