@@ -116,7 +116,7 @@ def _post_slack(total: int, successful: list, tests_failed: list, failed: list,
     lines = [
         f"*Security Remediation Run — {status}*",
         f"• Findings ingested: {total}",
-        f"• Auto-remediated: {len(successful)}",
+        f"• PRs opened: {len(successful)}",
     ]
     if tests_failed:
         lines.append(f"• PRs with failing tests (review required): {len(tests_failed)}")
@@ -132,7 +132,7 @@ def _post_slack(total: int, successful: list, tests_failed: list, failed: list,
                 lines.append(f"  - <{issue_url}|{title} in {name}>")
     if successful:
         lines.append("")
-        lines.append("*Remediated*")
+        lines.append("*PRs Opened*")
         for r in successful:
             f = r["finding"]
             title = get_rule_title(f["rule_id"])
