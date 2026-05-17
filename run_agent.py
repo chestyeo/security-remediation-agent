@@ -194,7 +194,7 @@ def main() -> None:
             if issue_url:
                 logger.info("[%s] Escalation issue: %s", fid, issue_url)
         elif status == "timeout":
-            logger.error("[%s] Devin session timed out — session: %s", fid, devin_result["session_url"])
+            logger.warning("[%s] Devin polling window closed (600s) — session: %s", fid, devin_result["session_url"])
             pr_url = find_pr_for_finding(fid)
             if pr_url:
                 logger.info("[%s] PR found after timeout: %s — counting as complete", fid, pr_url)

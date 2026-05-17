@@ -24,13 +24,19 @@ def test_missing_env_vars_raise(finding):
 
 # ── create_session retry tests ────────────────────────────────
 
+def _http_error(status_code: int) -> requests.HTTPError:
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    return requests.HTTPError(str(status_code), response=mock_response)
+
+
 def test_create_session_retries_on_transient_failure():
     ok_resp = MagicMock()
     ok_resp.raise_for_status.return_value = None
     ok_resp.json.return_value = {"session_id": "sess-abc"}
 
     fail_resp = MagicMock()
-    fail_resp.raise_for_status.side_effect = requests.HTTPError("503")
+    fail_resp.raise_for_status.side_effect = _http_error(503)
 
     with patch("src.devin_client.requests.post", side_effect=[fail_resp, fail_resp, ok_resp]) as mock_post, \
          patch("src.devin_client.time.sleep"):
@@ -42,7 +48,7 @@ def test_create_session_retries_on_transient_failure():
 
 def test_create_session_raises_after_all_retries_exhausted():
     fail_resp = MagicMock()
-    fail_resp.raise_for_status.side_effect = requests.HTTPError("503")
+    fail_resp.raise_for_status.side_effect = _http_error(503)
 
     with patch("src.devin_client.requests.post", return_value=fail_resp), \
          patch("src.devin_client.time.sleep"):
@@ -56,7 +62,7 @@ def test_poll_session_recovers_from_transient_errors():
     error = requests.ConnectionError("blip")
     ok_resp = MagicMock()
     ok_resp.raise_for_status.return_value = None
-    ok_resp.json.return_value = {"status": "complete", "pull_request_url": "https://github.com/pr/1"}
+    ok_resp.json.return_value = {"status": "exit", "pull_request_url": "https://github.com/pr/1"}
 
     with patch("src.devin_client.requests.get", side_effect=[error, error, ok_resp]), \
          patch("src.devin_client.time.sleep"), \
@@ -80,7 +86,7 @@ def test_poll_session_fails_after_max_consecutive_errors():
 def test_poll_session_blocked_returns_failed():
     resp = MagicMock()
     resp.raise_for_status.return_value = None
-    resp.json.return_value = {"status": "blocked"}
+    resp.json.return_value = {"status": "suspended"}
 
     with patch("src.devin_client.requests.get", return_value=resp), \
          patch("src.devin_client.time.sleep"), \
@@ -90,10 +96,10 @@ def test_poll_session_blocked_returns_failed():
     assert result["status"] == "failed"
 
 
-@pytest.mark.parametrize("status_code", [401, 403, 429, 500])
-def test_create_session_raises_on_http_errors(status_code):
+@pytest.mark.parametrize("status_code", [429, 500])
+def test_create_session_raises_http_error_on_transient_failures(status_code):
     resp = MagicMock()
-    resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code}")
+    resp.raise_for_status.side_effect = _http_error(status_code)
 
     with patch("src.devin_client.requests.post", return_value=resp), \
          patch("src.devin_client.time.sleep"):
@@ -101,11 +107,22 @@ def test_create_session_raises_on_http_errors(status_code):
             create_session("prompt", "key", "org")
 
 
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_create_session_raises_runtime_error_on_auth_failures(status_code):
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = _http_error(status_code)
+
+    with patch("src.devin_client.requests.post", return_value=resp), \
+         patch("src.devin_client.time.sleep"):
+        with pytest.raises(RuntimeError, match="DEVIN_API_KEY|Devin org"):
+            create_session("prompt", "key", "org")
+
+
 def test_poll_result_includes_structured_output():
     resp = MagicMock()
     resp.raise_for_status.return_value = None
     resp.json.return_value = {
-        "status": "complete",
+        "status": "exit",
         "pull_request_url": "https://github.com/pr/1",
         "structured_output": '{"fix_applied": true, "tests_passed": true}',
     }
@@ -122,7 +139,7 @@ def test_poll_result_uses_pull_requests_array():
     resp = MagicMock()
     resp.raise_for_status.return_value = None
     resp.json.return_value = {
-        "status": "complete",
+        "status": "exit",
         "pull_requests": [{"url": "https://github.com/acme/medsecure/pull/99"}],
     }
 
